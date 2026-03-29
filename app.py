@@ -785,7 +785,7 @@ render_config_sidebar()
 # ══════════════════════════════════════════════════════════════════════════
 
 if page == "Ajout manuel multiple":
-    st.markdown("<h1>✏️ Ajout manuel multiple</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>✏️ Générateur de métas - Ajout manuel multiple</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color:#94a3b8; margin-top:-0.5rem; margin-bottom:1.5rem;'>Recherche en batch — un titre par ligne</p>", unsafe_allow_html=True)
 
     v2run = st.session_state.v2_run_count
@@ -862,7 +862,7 @@ if page == "Ajout manuel multiple":
 # ══════════════════════════════════════════════════════════════════════════
 
 elif page == "Ajout depuis FilmFR":
-    st.markdown("<h1>🎬 Ajout depuis FilmFR</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>🎬 Générateur de métas - Ajout depuis FilmFR</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color:#94a3b8; margin-top:-0.5rem; margin-bottom:1.5rem;'>Scan automatique des nouveautés FilmFR</p>", unsafe_allow_html=True)
 
     frun = st.session_state.ffr_run_count
