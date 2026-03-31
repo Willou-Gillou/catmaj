@@ -1,153 +1,70 @@
 import streamlit as st
-st.set_page_config(page_title="Sorites FR 2.01", page_icon="logo.jpeg")
+st.set_page_config(page_title="Sorties FR 2.02", page_icon="logo.jpeg")
 import requests
 from bs4 import BeautifulSoup
 import re
 import json
 import time
 from urllib.parse import quote
-import streamlit.components.v1 as _components
-import os
+
 
 # ── Configuration persistante via localStorage ────────────────────────────
-_LS_PREFIX = "app_config_"
+from streamlit_local_storage import LocalStorage
+localS = LocalStorage()
+
 _CFG_DEFAULTS = {
-    "tmdb_api_key":          "",
-    "metas_films_pastebin":  "",
+    "tmdb_api_key": "",
+    "metas_films_pastebin": "",
     "megas_series_pastebin": "",
 }
 
 def get_config(key: str) -> str:
-    return st.session_state.get(f"cfg_{key}", _CFG_DEFAULTS.get(key, ""))
+    # Attempt to read from session state first to avoid flickering
+    if f"cfg_{key}" in st.session_state:
+        return st.session_state[f"cfg_{key}"]
 
-def _save_to_ls(key: str, value: str):
-    _components.html(
-        f'''<script>localStorage.setItem("{_LS_PREFIX}{key}", {json.dumps(value)});</script>''',
-        height=0,
-    )
-
-def _load_ls_once():
-    """Premier chargement : lit localStorage via JS et peuple session_state."""
-    if st.session_state.get("_ls_loaded"):
-        return
-    for key, default in _CFG_DEFAULTS.items():
-        # On utilise le query_params trick : le composant JS stocke dans sessionStorage
-        # puis on lit via un composant bidirectionnel simplifié.
-        # Ici on initialise depuis les defaults si pas encore en session_state.
-        if f"cfg_{key}" not in st.session_state:
-            st.session_state[f"cfg_{key}"] = default
-    # Injecte un script qui lit localStorage et réinjecte via hidden input
-    _components.html(
-        f"""
-        <script>
-        (function() {{
-            const prefix = "{_LS_PREFIX}";
-            const keys = ["tmdb_api_key", "metas_films_pastebin", "megas_series_pastebin"];
-            keys.forEach(function(k) {{
-                const val = localStorage.getItem(prefix + k);
-                if (val !== null && val !== "") {{
-                    // Stocke dans sessionStorage pour récupération côté Python au prochain rerun
-                    sessionStorage.setItem("st_cfg_" + k, val);
-                    // Force un custom event pour notifier
-                    window.parent.postMessage({{streamlit_ls_key: k, streamlit_ls_val: val}}, "*");
-                }}
-            }});
-        }})();
-        </script>
-        """,
-        height=0,
-    )
-    st.session_state["_ls_loaded"] = True
+    # Otherwise read from local storage
+    val = localS.getItem(key)
+    if val and isinstance(val, str):
+        st.session_state[f"cfg_{key}"] = val
+        return val
+    return _CFG_DEFAULTS.get(key, "")
 
 def render_config_sidebar():
     """Panneau ⚙️ Configuration dans la sidebar — persiste dans localStorage."""
-    _load_ls_once()
-
-    # Lire les valeurs éventuellement passées via query_params (mécanisme de bootstrap)
-    for key in _CFG_DEFAULTS:
-        qp_key = f"lscfg_{key}"
-        if qp_key in st.query_params:
-            val = st.query_params[qp_key]
-            if val and st.session_state.get(f"cfg_{key}", "") != val:
-                st.session_state[f"cfg_{key}"] = val
-
     with st.sidebar:
         st.markdown("---")
-        st.markdown("""
-        <style>
-        section[data-testid="stSidebar"] div[data-testid="stExpander"] {
-            background-color: #1e293b !important;
-            border: 1px solid #334155 !important;
-            border-radius: 8px !important;
-        }
-        section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
-            color: #e2e8f0 !important;
-            background-color: #1e293b !important;
-        }
-        section[data-testid="stSidebar"] div[data-testid="stExpander"] summary:hover {
-            background-color: #273549 !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        cfg_ok = bool(st.session_state.get("cfg_tmdb_api_key", ""))
+        cfg_ok = bool(get_config("tmdb_api_key"))
         with st.expander("⚙️ Configuration", expanded=not cfg_ok):
             st.caption("Paramètres sauvegardés dans le cache local de votre navigateur.")
-
             fields = [
-                ("tmdb_api_key",          "🔑 TMDB API Key",             "password", "Clé API TMDb — https://www.themoviedb.org/settings/api"),
-                ("metas_films_pastebin",  "🎬 Pastebin Films (URL raw)", "default",  "URL raw Pastebin pour les métas films"),
-                ("megas_series_pastebin", "📺 Pastebin Séries (URL raw)","default",  "URL raw Pastebin pour les mégas séries"),
+                ("tmdb_api_key", "🔑 TMDB API Key", "password", "Clé API TMDb — https://www.themoviedb.org/settings/api"),
+                ("metas_films_pastebin", "🎬 Pastebin Films (URL raw)", "default", "URL raw Pastebin pour les métas films"),
+                ("megas_series_pastebin", "📺 Pastebin Séries (URL raw)","default", "URL raw Pastebin pour les mégas séries"),
             ]
             for key, label, input_type, help_txt in fields:
                 session_key = f"cfg_{key}"
-                widget_key  = f"widget_cfg_{key}"
-                if session_key not in st.session_state:
-                    st.session_state[session_key] = _CFG_DEFAULTS.get(key, "")
+                widget_key = f"widget_{key}"
+
+                current_val = get_config(key)
 
                 new_val = st.text_input(
                     label,
-                    value=st.session_state[session_key],
+                    value=current_val if current_val is not None else "",
                     key=widget_key,
                     type=input_type,
                     help=help_txt,
                 )
-                if new_val != st.session_state[session_key]:
-                    st.session_state[session_key] = new_val
-                    _save_to_ls(key, new_val)
 
-            if not st.session_state.get("cfg_tmdb_api_key"):
+                if new_val != current_val and new_val is not None:
+                    st.session_state[session_key] = new_val
+                    localS.setItem(key, new_val)
+                    st.rerun()
+
+            if not get_config("tmdb_api_key"):
                 st.warning("⚠️ TMDB API Key non renseignée.")
             else:
                 st.success("✅ Configuration OK")
-
-        # Composant JS bootstrap : lit localStorage au chargement de la page
-        # et redirige avec query_params si des valeurs existent
-        _components.html(
-            f"""
-            <script>
-            (function() {{
-                if (window._ls_bootstrap_done) return;
-                window._ls_bootstrap_done = true;
-                const prefix = "{_LS_PREFIX}";
-                const keys = ["tmdb_api_key", "metas_films_pastebin", "megas_series_pastebin"];
-                const url = new URL(window.parent.location.href);
-                let changed = false;
-                keys.forEach(function(k) {{
-                    const stored = localStorage.getItem(prefix + k);
-                    if (stored && stored !== "" && !url.searchParams.has("lscfg_" + k)) {{
-                        url.searchParams.set("lscfg_" + k, stored);
-                        changed = true;
-                    }}
-                }});
-                if (changed) {{
-                    window.parent.history.replaceState(null, "", url.toString());
-                    window.parent.location.reload();
-                }}
-            }})();
-            </script>
-            """,
-            height=0,
-        )
 
 TMDB_BASE = "https://api.themoviedb.org/3"
 TMDB_IMG_BASE = "https://image.tmdb.org/t/p/w92"
@@ -349,6 +266,7 @@ def render_jw_top3_selector(top3_jw, jw_chosen_key, jw_radio_key):
                       horizontal=False, label_visibility="collapsed")
     st.session_state[jw_chosen_key] = top3_jw[jw_labels.index(chosen)]["poster"] or ""
 
+@st.fragment
 def render_result_card(i, res, frun, prefix="ffr"):
     icon          = "✅" if res["id"] else "⚠️"
     name_original = res.get("name_original", "")
@@ -496,14 +414,14 @@ def render_result_card(i, res, frun, prefix="ffr"):
         col_compile, col_delete = st.columns(2)
 
         with col_compile:
-            if st.button("📋 Compiler ce meta", key=compile_key, use_container_width=True):
+            if st.button("📋 Compiler ce meta", key=compile_key, width="stretch"):
                 ids_existants = [m["id"] for m in st.session_state.compiled_metas]
                 if meta_preview["id"] not in ids_existants:
                     st.session_state.compiled_metas.append(meta_preview)
                 st.rerun()
 
         with col_delete:
-            if st.button("🗑️ Supprimer", key=delete_key, use_container_width=True):
+            if st.button("🗑️ Supprimer", key=delete_key, width="stretch"):
                 results_key  = "v2_results" if prefix == "v2" else "ffr_results"
                 results_list = st.session_state[results_key]
                 n, run       = len(results_list), frun
@@ -770,8 +688,7 @@ div[data-testid="stCodeBlock"] pre {
 # ══════════════════════════════════════════════════════════════════════════
 
 with st.sidebar:
-    chemin_logo = os.path.join(os.path.dirname(__file__), "logo.jpeg")
-    st.image(chemin_logo, width="stretch")
+    st.image("logo.jpeg", width="stretch")
     page = st.radio(
         "Navigation",
         ["Ajout manuel multiple", "Ajout depuis FilmFR"],
