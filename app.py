@@ -1,5 +1,6 @@
 import streamlit as st
-st.set_page_config(page_title="Sorties FR 2.03", page_icon="logo.jpeg")
+import os
+st.set_page_config(page_title="Sorites FR 2.04", page_icon="logo.jpeg")
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -139,6 +140,28 @@ def tmdb_get_title(imdb_id):
         return ""
     except Exception:
         return ""
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def tmdb_get_rating_by_imdb_id(imdb_id):
+    try:
+        clean_id = imdb_id if imdb_id.startswith('tt') else f'tt{imdb_id}'
+        r = requests.get(
+            f"{TMDB_BASE}/find/{clean_id}",
+            params={"api_key": get_config("tmdb_api_key"), "external_source": "imdb_id", "language": "fr-FR"},
+            timeout=8,
+        )
+        data = r.json()
+        movie_results = data.get('movie_results', [])
+        tv_results = data.get('tv_results', [])
+        if movie_results:
+            return movie_results[0].get('vote_average') or movie_results[0].get('rating') or ''
+        if tv_results:
+            return tv_results[0].get('vote_average') or tv_results[0].get('rating') or ''
+    except Exception:
+        pass
+    return ''
+
+
 
 # ── JustWatch ────────────────────────────────────────────────────────────────
 
@@ -699,7 +722,7 @@ with st.sidebar:
     st.image("logo.jpeg", width="stretch")
     page = st.radio(
         "Navigation",
-        ["Ajout manuel multiple", "Ajout depuis FilmFR"],
+        ["Ajout manuel multiple", "Ajout depuis FilmFR", "Ajout du rating"],
         label_visibility="collapsed"
     )
 
@@ -781,6 +804,53 @@ if page == "Ajout manuel multiple":
                         })
                 st.rerun()
         render_compiled_metas("vider_v2")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PAGE : Ajout du rating
+# ══════════════════════════════════════════════════════════════════════════
+elif page == "Ajout du rating":
+    st.markdown("<h1>⭐ Ajout du rating</h1>", unsafe_allow_html=True)
+    source = st.radio("Source", ["Pastebin Films", "Pastebin Séries"], horizontal=True)
+    pastebin_url = get_config("metas_films_pastebin") if source == "Pastebin Films" else get_config("megas_series_pastebin")
+    if not pastebin_url:
+        st.error("Pastebin manquant dans la configuration.")
+    else:
+        if st.button("🔄 Charger et enrichir"):
+            with st.spinner("Lecture du JSON et ajout des ratings..."):
+                resp = requests.get(pastebin_url, timeout=20)
+                resp.raise_for_status()
+                raw = resp.text.strip()
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    items = data.get("metas", data.get("items", []))
+                    container_key = "metas" if "metas" in data else "items" if "items" in data else None
+                else:
+                    items = data
+                    container_key = None
+                total = len(items) if isinstance(items, list) else 0
+                progress = st.progress(0)
+                enriched = []
+                for i, item in enumerate(items):
+                    imdb_id = item.get("imdb_id") or item.get("id") or ""
+                    rating = tmdb_get_rating_by_imdb_id(imdb_id) if imdb_id else ""
+                    new_item = dict(item)
+                    new_item["rating"] = rating
+                    enriched.append(new_item)
+                    if total:
+                        progress.progress((i + 1) / total)
+                if container_key:
+                    data[container_key] = enriched
+                    output = json.dumps(data, ensure_ascii=False, indent=2)
+                else:
+                    output = json.dumps(enriched, ensure_ascii=False, indent=2)
+                st.success(f"{len(enriched)} meta(s) enrichi(s).")
+                st.download_button(
+                    "⬇️ Télécharger le JSON enrichi",
+                    data=output.encode("utf-8"),
+                    file_name=f"rating_{source.lower().replace(' ', '_')}.json",
+                    mime="application/json",
+                )
 
 # ══════════════════════════════════════════════════════════════════════════
 # PAGE : Ajout depuis FilmFR
