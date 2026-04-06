@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-st.set_page_config(page_title="Sorites FR 2.04", page_icon="logo.jpeg")
+st.set_page_config(page_title="Sorites FR 3.01", page_icon="logo.jpeg")
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -140,6 +140,38 @@ def tmdb_get_title(imdb_id):
         return ""
     except Exception:
         return ""
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def tmdb_get_french_poster(imdb_id):
+    try:
+        clean_id = imdb_id if imdb_id.startswith("tt") else f"tt{imdb_id}"
+        r = requests.get(
+            f"{TMDB_BASE}/find/{clean_id}",
+            params={"api_key": get_config("tmdb_api_key"), "external_source": "imdb_id", "language": "fr-FR"},
+            timeout=10,
+        )
+        data = r.json()
+        results = data.get("movie_results", []) or data.get("tv_results", [])
+        if results:
+            poster_path = results[0].get("poster_path")
+            if poster_path:
+                return f"{TMDB_IMG_BASE}{poster_path}"
+    except Exception:
+        pass
+    return ""
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_poster_fr_then_justwatch(imdb_id, fallback_title=""):
+    poster = tmdb_get_french_poster(imdb_id)
+    if poster:
+        return poster
+    if fallback_title:
+        jw = scraper_justwatch_top3(fallback_title)
+        if jw:
+            return jw[0].get("poster") or ""
+    return ""
+
+
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def tmdb_get_rating_by_imdb_id(imdb_id):
@@ -722,7 +754,7 @@ with st.sidebar:
     st.image("logo.jpeg", width="stretch")
     page = st.radio(
         "Navigation",
-        ["Ajout manuel multiple", "Ajout depuis FilmFR", "Ajout du rating"],
+        ["Ajout manuel multiple", "Ajout depuis FilmFR", "Ajout du rating", "Ajout depuis FilmFR avancé"],
         label_visibility="collapsed"
     )
 
