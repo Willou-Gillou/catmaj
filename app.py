@@ -1,5 +1,5 @@
 import streamlit as st
-st.set_page_config(page_title="Sorites FR 3.05", page_icon="logo.jpeg")
+st.set_page_config(page_title="Sorites FR 3.07", page_icon="logo.jpeg")
 import os
 from streamlit_local_storage import LocalStorage
 localS = LocalStorage()
@@ -452,6 +452,11 @@ def render_result_card(i, res, frun, prefix="ffr"):
             "name":   st.session_state.get(name_key) or (name_original or res["name"]),
             "poster": poster_val or (f"https://live.metahub.space/poster/small/{imdb_id_val}/img" if imdb_id_val else "")
         }
+
+        rating_val = res.get("rating")
+        if rating_val:
+            meta_preview["rating"] = rating_val
+
         st.code(json.dumps(meta_preview, indent=2, ensure_ascii=False) + ",", language="json")
 
         compile_key = f"{prefix}_compile_{frun}_{i}"
@@ -824,7 +829,14 @@ if page == "Ajout manuel multiple":
 # ══════════════════════════════════════════════════════════════════════════
 
 elif page in ["Ajout depuis FilmFR", "Ajout depuis FilmFR avancé"]:
-    st.markdown("<h1>🎬 Ajout depuis FilmFR</h1>", unsafe_allow_html=True)
+    if st.session_state.get("last_ffr_page") != page:
+        for k in ["ffr_menu_items", "ffr_films_nouveaux", "ffr_films_existants", "ffr_series_nouveaux",
+                  "ffr_series_existants", "ffr_selected_films", "ffr_selected_series", "ffr_results"]:
+            st.session_state[k] = []
+        st.session_state["last_ffr_page"] = page
+        st.rerun()
+
+    st.markdown(f"<h1>🎬 Générateur de métas - {page}</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color:#94a3b8; margin-top:-0.5rem; margin-bottom:1.5rem;'>Scan automatique des nouveautés FilmFR</p>", unsafe_allow_html=True)
 
     frun = st.session_state.ffr_run_count
