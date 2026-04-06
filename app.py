@@ -1,5 +1,5 @@
 import streamlit as st
-st.set_page_config(page_title="Sorites FR 3.02", page_icon="logo.jpeg")
+st.set_page_config(page_title="Sorites FR 3.05", page_icon="logo.jpeg")
 import os
 from streamlit_local_storage import LocalStorage
 localS = LocalStorage()
@@ -148,7 +148,9 @@ def tmdb_get_rating_by_imdb_id(imdb_id):
         for res_type in ['movie_results', 'tv_results']:
             results = data.get(res_type, [])
             if results:
-                return str(results[0].get('vote_average') or results[0].get('rating') or '')
+                val = results[0].get('vote_average') or results[0].get('rating')
+                if val:
+                    return str(round(float(val), 1))
     except: pass
     return ''
 
