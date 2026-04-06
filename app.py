@@ -1,6 +1,8 @@
 import streamlit as st
+st.set_page_config(page_title="Sorites FR 3.02", page_icon="logo.jpeg")
 import os
-st.set_page_config(page_title="Sorites FR 3.01", page_icon="logo.jpeg")
+from streamlit_local_storage import LocalStorage
+localS = LocalStorage()
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -10,9 +12,6 @@ from urllib.parse import quote
 
 
 # ── Configuration persistante via localStorage ────────────────────────────
-from streamlit_local_storage import LocalStorage
-localS = LocalStorage()
-
 _CFG_DEFAULTS = {
     "tmdb_api_key": "",
     "metas_films_pastebin": "",
@@ -20,23 +19,15 @@ _CFG_DEFAULTS = {
 }
 
 def get_config(key: str) -> str:
-    # Lecture pure en RAM (instantané), le LocalStorage n'est interrogé qu'une fois dans la sidebar
     return st.session_state.get(f"cfg_{key}", _CFG_DEFAULTS.get(key, ""))
 
-
 def render_config_sidebar():
-    """Panneau ⚙️ Configuration dans la sidebar — persiste dans localStorage."""
     with st.sidebar:
         st.markdown("---")
         cfg_ok = bool(get_config("tmdb_api_key"))
         with st.expander("⚙️ Configuration", expanded=not cfg_ok):
-            st.caption("Paramètres sauvegardés dans le cache local de votre navigateur.")
-            fields = [
-                ("tmdb_api_key", "🔑 TMDB API Key", "password", "Clé API TMDb — https://www.themoviedb.org/settings/api"),
-                ("metas_films_pastebin", "🎬 Pastebin Films (URL raw)", "default", "URL raw Pastebin pour les métas films"),
-                ("megas_series_pastebin", "📺 Pastebin Séries (URL raw)","default", "URL raw Pastebin pour les mégas séries"),
-            ]
-            # Synchronisation initiale depuis le Local Storage
+            st.caption("Paramètres sauvegardés dans le cache local.")
+
             if "ls_synced" not in st.session_state:
                 synced_all = True
                 for key in _CFG_DEFAULTS:
@@ -48,22 +39,22 @@ def render_config_sidebar():
                 if synced_all:
                     st.session_state["ls_synced"] = True
 
+            fields = [
+                ("tmdb_api_key", "🔑 TMDB API Key", "password", "Clé API TMDb"),
+                ("metas_films_pastebin", "🎬 Pastebin Films", "default", "URL raw Pastebin films"),
+                ("megas_series_pastebin", "📺 Pastebin Séries","default", "URL raw Pastebin séries"),
+            ]
             for key, label, input_type, help_txt in fields:
-                session_key = f"cfg_{key}"
-                widget_key = f"widget_{key}"
-
                 current_val = get_config(key)
-
                 new_val = st.text_input(
                     label,
                     value=current_val if current_val is not None else "",
-                    key=widget_key,
+                    key=f"widget_{key}",
                     type=input_type,
                     help=help_txt,
                 )
-
                 if new_val != current_val and new_val is not None:
-                    st.session_state[session_key] = new_val
+                    st.session_state[f"cfg_{key}"] = new_val
                     localS.setItem(key, new_val)
                     st.rerun()
 
@@ -141,36 +132,7 @@ def tmdb_get_title(imdb_id):
     except Exception:
         return ""
 
-@st.cache_data(ttl=86400, show_spinner=False)
-def tmdb_get_french_poster(imdb_id):
-    try:
-        clean_id = imdb_id if imdb_id.startswith("tt") else f"tt{imdb_id}"
-        r = requests.get(
-            f"{TMDB_BASE}/find/{clean_id}",
-            params={"api_key": get_config("tmdb_api_key"), "external_source": "imdb_id", "language": "fr-FR"},
-            timeout=10,
-        )
-        data = r.json()
-        results = data.get("movie_results", []) or data.get("tv_results", [])
-        if results:
-            poster_path = results[0].get("poster_path")
-            if poster_path:
-                return f"{TMDB_IMG_BASE}{poster_path}"
-    except Exception:
-        pass
-    return ""
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def get_poster_fr_then_justwatch(imdb_id, fallback_title=""):
-    poster = tmdb_get_french_poster(imdb_id)
-    if poster:
-        return poster
-    if fallback_title:
-        jw = scraper_justwatch_top3(fallback_title)
-        if jw:
-            return jw[0].get("poster") or ""
-    return ""
-
+# ── JustWatch ────────────────────────────────────────────────────────────────
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -183,19 +145,37 @@ def tmdb_get_rating_by_imdb_id(imdb_id):
             timeout=8,
         )
         data = r.json()
-        movie_results = data.get('movie_results', [])
-        tv_results = data.get('tv_results', [])
-        if movie_results:
-            return movie_results[0].get('vote_average') or movie_results[0].get('rating') or ''
-        if tv_results:
-            return tv_results[0].get('vote_average') or tv_results[0].get('rating') or ''
-    except Exception:
-        pass
+        for res_type in ['movie_results', 'tv_results']:
+            results = data.get(res_type, [])
+            if results:
+                return str(results[0].get('vote_average') or results[0].get('rating') or '')
+    except: pass
     return ''
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def tmdb_get_french_poster(imdb_id):
+    try:
+        clean_id = imdb_id if imdb_id.startswith("tt") else f"tt{imdb_id}"
+        r = requests.get(
+            f"{TMDB_BASE}/find/{clean_id}",
+            params={"api_key": get_config("tmdb_api_key"), "external_source": "imdb_id", "language": "fr-FR"},
+            timeout=8,
+        )
+        data = r.json()
+        results = data.get("movie_results", []) or data.get("tv_results", [])
+        if results and results[0].get("poster_path"):
+            return f"{TMDB_IMG_BASE}{results[0].get('poster_path')}"
+    except: pass
+    return ""
 
-
-# ── JustWatch ────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_poster_fr_then_justwatch(imdb_id, fallback_title=""):
+    poster = tmdb_get_french_poster(imdb_id)
+    if poster: return poster
+    if fallback_title:
+        jw = scraper_justwatch_top3(fallback_title)
+        if jw: return jw[0].get("poster") or ""
+    return ""
 
 def normalise_titre_plein(titre_plein):
     if not titre_plein or isinstance(titre_plein, (int, float)):
@@ -754,7 +734,7 @@ with st.sidebar:
     st.image("logo.jpeg", width="stretch")
     page = st.radio(
         "Navigation",
-        ["Ajout manuel multiple", "Ajout depuis FilmFR", "Ajout du rating", "Ajout depuis FilmFR avancé"],
+        ["Ajout manuel multiple", "Ajout depuis FilmFR", "Ajout depuis FilmFR avancé", "Ajout du rating"],
         label_visibility="collapsed"
     )
 
@@ -837,59 +817,12 @@ if page == "Ajout manuel multiple":
                 st.rerun()
         render_compiled_metas("vider_v2")
 
-
-# ══════════════════════════════════════════════════════════════════════════
-# PAGE : Ajout du rating
-# ══════════════════════════════════════════════════════════════════════════
-elif page == "Ajout du rating":
-    st.markdown("<h1>⭐ Ajout du rating</h1>", unsafe_allow_html=True)
-    source = st.radio("Source", ["Pastebin Films", "Pastebin Séries"], horizontal=True)
-    pastebin_url = get_config("metas_films_pastebin") if source == "Pastebin Films" else get_config("megas_series_pastebin")
-    if not pastebin_url:
-        st.error("Pastebin manquant dans la configuration.")
-    else:
-        if st.button("🔄 Charger et enrichir"):
-            with st.spinner("Lecture du JSON et ajout des ratings..."):
-                resp = requests.get(pastebin_url, timeout=20)
-                resp.raise_for_status()
-                raw = resp.text.strip()
-                data = json.loads(raw)
-                if isinstance(data, dict):
-                    items = data.get("metas", data.get("items", []))
-                    container_key = "metas" if "metas" in data else "items" if "items" in data else None
-                else:
-                    items = data
-                    container_key = None
-                total = len(items) if isinstance(items, list) else 0
-                progress = st.progress(0)
-                enriched = []
-                for i, item in enumerate(items):
-                    imdb_id = item.get("imdb_id") or item.get("id") or ""
-                    rating = tmdb_get_rating_by_imdb_id(imdb_id) if imdb_id else ""
-                    new_item = dict(item)
-                    new_item["rating"] = rating
-                    enriched.append(new_item)
-                    if total:
-                        progress.progress((i + 1) / total)
-                if container_key:
-                    data[container_key] = enriched
-                    output = json.dumps(data, ensure_ascii=False, indent=2)
-                else:
-                    output = json.dumps(enriched, ensure_ascii=False, indent=2)
-                st.success(f"{len(enriched)} meta(s) enrichi(s).")
-                st.download_button(
-                    "⬇️ Télécharger le JSON enrichi",
-                    data=output.encode("utf-8"),
-                    file_name=f"rating_{source.lower().replace(' ', '_')}.json",
-                    mime="application/json",
-                )
-
 # ══════════════════════════════════════════════════════════════════════════
 # PAGE : Ajout depuis FilmFR
 # ══════════════════════════════════════════════════════════════════════════
 
-elif page == "Ajout depuis FilmFR":
-    st.markdown("<h1>🎬 Générateur de métas - Ajout depuis FilmFR</h1>", unsafe_allow_html=True)
+elif page in ["Ajout depuis FilmFR", "Ajout depuis FilmFR avancé"]:
+    st.markdown("<h1>🎬 Ajout depuis FilmFR</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color:#94a3b8; margin-top:-0.5rem; margin-bottom:1.5rem;'>Scan automatique des nouveautés FilmFR</p>", unsafe_allow_html=True)
 
     frun = st.session_state.ffr_run_count
@@ -918,7 +851,25 @@ elif page == "Ajout depuis FilmFR":
                     with st.spinner(f"Scan de « {choix_menu} » + chargement Pastebins..."):
                         existing_films = load_pastebin_robust(get_config("metas_films_pastebin"))
                         existing_series = load_pastebin_robust(get_config("megas_series_pastebin"))
+                        
                         fn, fe, sn, se = get_contenus_from_page(selected_item["url"], existing_films, existing_series)
+
+                        if page == "Ajout depuis FilmFR avancé":
+                            def enrich(items):
+                                out = []
+                                for item in items:
+                                    new_item = dict(item)
+                                    imdb_id = item.get("id") or item.get("imdb_id") or ""
+                                    if imdb_id:
+                                        new_item["rating"] = tmdb_get_rating_by_imdb_id(imdb_id)
+                                        new_item["poster"] = get_poster_fr_then_justwatch(imdb_id, new_item.get("name", "")) or new_item.get("poster")
+                                    out.append(new_item)
+                                return out
+                            fn = enrich(fn)
+                            fe = enrich(fe)
+                            sn = enrich(sn)
+                            se = enrich(se)
+
                         st.session_state.ffr_films_nouveaux = fn
                         st.session_state.ffr_films_existants = fe
                         st.session_state.ffr_series_nouveaux = sn
@@ -1025,3 +976,52 @@ elif page == "Ajout depuis FilmFR":
         with col_pb:
             st.link_button("📎 Pastebin", "https://pastebin.com")
         render_compiled_metas("vider_ffr")
+
+# ══════════════════════════════════════════════════════════════════════════
+# PAGE : Ajout du rating
+# ══════════════════════════════════════════════════════════════════════════
+elif page == "Ajout du rating":
+    st.markdown("<h1>⭐ Générateur de métas - Ajout du rating</h1>", unsafe_allow_html=True)
+    source = st.radio("Source", ["Pastebin Films", "Pastebin Séries"], horizontal=True)
+    pastebin_url = get_config("metas_films_pastebin") if source == "Pastebin Films" else get_config("megas_series_pastebin")
+
+    if not pastebin_url:
+        st.error("Pastebin manquant dans la configuration.")
+    else:
+        if st.button("🔄 Charger et enrichir"):
+            with st.spinner("Lecture du JSON et ajout des ratings..."):
+                try:
+                    resp = requests.get(pastebin_url, timeout=20)
+                    resp.raise_for_status()
+                    data = resp.json()
+
+                    items = data.get("metas", data.get("items", [])) if isinstance(data, dict) else data
+                    container_key = "metas" if isinstance(data, dict) and "metas" in data else "items" if isinstance(data, dict) and "items" in data else None
+
+                    progress = st.progress(0)
+                    enriched = []
+                    total = len(items)
+                    for i, item in enumerate(items):
+                        new_item = dict(item)
+                        imdb_id = item.get("imdb_id") or item.get("id") or ""
+                        if imdb_id:
+                            new_item["rating"] = tmdb_get_rating_by_imdb_id(imdb_id)
+                        enriched.append(new_item)
+                        if total: progress.progress((i + 1) / total)
+
+                    if container_key:
+                        data[container_key] = enriched
+                        output = json.dumps(data, ensure_ascii=False, indent=2)
+                    else:
+                        output = json.dumps(enriched, ensure_ascii=False, indent=2)
+
+                    st.success(f"✅ {len(enriched)} meta(s) enrichi(s).")
+                    st.download_button(
+                        "⬇️ Télécharger le JSON enrichi",
+                        data=output.encode("utf-8"),
+                        file_name=f"rating_{source.lower().replace(' ', '_')}.json",
+                        mime="application/json",
+                    )
+                except Exception as e:
+                    st.error(f"Erreur lors du traitement: {e}")
+
