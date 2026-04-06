@@ -854,25 +854,7 @@ elif page in ["Ajout depuis FilmFR", "Ajout depuis FilmFR avancé"]:
                         
                         fn, fe, sn, se = get_contenus_from_page(selected_item["url"], existing_films, existing_series)
 
-                        if page == "Ajout depuis FilmFR avancé":
-                            def enrich(items):
-                                out = []
-                                for item in items:
-                                    # Fix: item might be a string (like a raw ID or name) if the parser failed, 
-                                    # or we need to ensure it's a dict before updating.
-                                    if not isinstance(item, dict):
-                                        continue
-                                    new_item = dict(item)
-                                    imdb_id = item.get("id") or item.get("imdb_id") or ""
-                                    if imdb_id:
-                                        new_item["rating"] = tmdb_get_rating_by_imdb_id(imdb_id)
-                                        new_item["poster"] = get_poster_fr_then_justwatch(imdb_id, new_item.get("name", "")) or new_item.get("poster")
-                                    out.append(new_item)
-                                return out
-                            fn = enrich(fn)
-                            fe = enrich(fe)
-                            sn = enrich(sn)
-                            se = enrich(se)
+
 
                         st.session_state.ffr_films_nouveaux = fn
                         st.session_state.ffr_films_existants = fe
@@ -938,14 +920,33 @@ elif page in ["Ajout depuis FilmFR", "Ajout depuis FilmFR avancé"]:
                         if imdb_id:
                             imdb_title = tmdb_get_title(imdb_id) or search_name
                             time.sleep(0.1)
-                        results.append({
-                            "id": imdb_id,
-                            "name_original": titre,
-                            "name": search_name,
-                            "imdb_title": imdb_title,
-                            "poster": poster_url or (f"https://live.metahub.space/poster/small/{imdb_id}/img" if imdb_id else None),
-                            "top3": top3, "top3_jw": top3_jw
-                        })
+                        
+                        if page == "Ajout depuis FilmFR avancé":
+                            final_poster = get_poster_fr_then_justwatch(imdb_id, search_name) if imdb_id else poster_url
+                            final_poster = final_poster or poster_url or (f"https://live.metahub.space/poster/small/{imdb_id}/img" if imdb_id else None)
+
+                            res_obj = {
+                                "id": imdb_id,
+                                "name_original": titre,
+                                "name": search_name,
+                                "imdb_title": imdb_title,
+                                "poster": final_poster,
+                                "top3": top3, "top3_jw": top3_jw
+                            }
+                            if imdb_id:
+                                rating = tmdb_get_rating_by_imdb_id(imdb_id)
+                                if rating:
+                                    res_obj["rating"] = rating
+                            results.append(res_obj)
+                        else:
+                            results.append({
+                                "id": imdb_id,
+                                "name_original": titre,
+                                "name": search_name,
+                                "imdb_title": imdb_title,
+                                "poster": poster_url or (f"https://live.metahub.space/poster/small/{imdb_id}/img" if imdb_id else None),
+                                "top3": top3, "top3_jw": top3_jw
+                            })
                         progress.progress((i + 1) / len(all_to_process))
                     st.session_state.ffr_results = results
                     status.empty()
